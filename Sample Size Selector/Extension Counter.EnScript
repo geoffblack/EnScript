@@ -1,0 +1,41 @@
+/*
+Simple extension count aggregator
+
+Script author: Geoff Black
+               geoff@geoffblack.com
+*/
+
+class ExtensionCounterClass: NameListClass {
+  ulong ExtCount;
+
+  ExtensionCounterClass(NameListClass parent=null, const String &name="", ulong extCount=0):
+    NameListClass(parent, name),
+    ExtCount = extCount
+  {
+  }
+}
+
+class MainClass {
+  void Main(CaseClass c) {
+    SystemClass::ClearConsole();
+    ExtensionCounterClass ExtensionList();
+    forall (EntryClass e in c.EntryRoot()) {
+      if (e.IsSelected()) {
+        String x = e.Extension();
+        if (x == "") {
+          x = "*";
+        }
+        ExtensionCounterClass ext = ExtensionList.Find(x);
+        if (!ext) {
+          new ExtensionCounterClass(ExtensionList, x, 1);
+        }
+        else {
+          ++ext.ExtCount;
+        }
+      }
+    }
+    forall (ExtensionCounterClass ext in ExtensionList) {
+      Console.WriteLine(ext.Name() + "\t" + ext.ExtCount);
+    }
+  }
+}
