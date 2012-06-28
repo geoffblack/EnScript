@@ -1,0 +1,30 @@
+/*
+dotNet DLL/Library COM Demo
+---------------------------
+Geoff Black
+geoff@geoffblack.com
+http://www.geoffblack.com/forensics/
+*/
+
+typelib aCDemoClass "CDemoLib.COMDemo"
+
+class MainClass {
+
+  aCDemoClass::COMDemo acd;
+
+  void Main(CaseClass c) {
+    SystemClass::ClearConsole();
+    acd.Create();
+    Console.WriteLine("Value1: " + acd.Value1());
+    Console.WriteLine("Name: " + acd.Name());
+    Console.WriteLine("----------------------");
+    Console.WriteLine("--Setting properties--");
+    acd.SetValue1(1000);
+    acd.SetName("My ACD Name");
+    Console.WriteLine("----------------------");
+    Console.WriteLine("Value1: " + acd.Value1());
+    Console.WriteLine("Name: " + acd.Name());
+    Console.WriteLine("----------------------");
+    Console.WriteLine("acd.PlusFive(7): " + acd.PlusFive(7));
+  }
+}
