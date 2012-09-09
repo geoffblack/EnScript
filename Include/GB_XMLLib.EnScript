@@ -1,0 +1,86 @@
+/*
+Library Version: 1.4.3
+This library is a hacked version of GSI_XMLLib modified
+to allow the Zero Width Space char (&#8203) necessary
+for proper linebreaking in HTML reports.
+
+Geoff Black, EnCE
+geoff@geoffblack.com
+*/
+class XMLClass {
+  HostFileClass File;
+
+  XMLClass():
+    File(LocalMachine)
+  {
+  }
+
+  bool Create(const String &filename) {
+    if (File.Open(filename, FileClass::WRITETEXTCRLF)) {
+      File.Write("<?xml version=\"1.0\"?>\n");
+      return true;
+    }
+    else
+      return false;
+  }
+
+  void Close() {
+    File.Close();
+  }
+
+  void ManualWrite(const String &s) {
+    File.Write(s);
+  }
+
+  void Write(String s) {
+    s.Replace("&", "&amp;", 0, -1); // must come first
+    s.Replace("\"", "&quot;", 0, -1);
+    s.Replace("<", "&lt;", 0, -1);
+    s.Replace(">", "&gt;", 0, -1);
+    s.Replace("   ", "&nbsp;&nbsp;&nbsp;", 0, -1);
+    File.Write(s);
+  }
+
+  void Write(String s, bool AmpOption) {
+    s.Replace("&", "&amp;", 0, -1); // must come first
+    if ( AmpOption ) {
+      s.Replace("&amp;#8203;", "&#8203;", 0, -1); //allow Zero Width Space char (&#8203)
+    }
+    s.Replace("\"", "&quot;", 0, -1);
+    s.Replace("<", "&lt;", 0, -1);
+    s.Replace(">", "&gt;", 0, -1);
+    s.Replace("   ", "&nbsp;&nbsp;&nbsp;", 0, -1);
+    File.Write(s);
+  }
+
+  void Begin(const String &tag, const String &attributes = "") {
+    if (attributes != "")
+      File.Write("<" + tag + " " + attributes + ">");
+    else
+      File.Write("<" + tag + ">");
+  }
+
+  void End(const String &tag) {
+    File.Write("</" + tag + ">\n");
+  }
+/*
+  void Insert(const String &tag, const String &attributes, const String &value) {
+    Begin(tag, attributes);
+    Write(value);
+    End(tag);
+  }
+*/
+  void Insert(const String &tag, const String &attributes, const String &value, bool AmpOption) {
+    Begin(tag, attributes);
+    Write(value, AmpOption);
+    End(tag);
+  }
+
+  void VoidElement(const String &tag) {
+    File.Write("<" + tag + " />\n");
+  }
+
+  void VoidElement(const String &tag, const String &attributes) {
+    File.Write("<" + tag + " " + attributes + " />\n");
+  }
+}

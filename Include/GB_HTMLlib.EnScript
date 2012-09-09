@@ -1,0 +1,214 @@
+/*
+Library Version: 1.4.3
+This library is a hacked version of GSI_HTMLlib modified
+to allow the Zero Width Space char (&#8203) necessary
+for proper linebreaking in HTML reports.
+
+Geoff Black, EnCE
+geoff@geoffblack.com
+*/
+
+include "GB_XMLLib"
+
+class HTMLClass {
+  XMLClass File;
+
+  HTMLClass():
+    File()
+  {
+  }
+
+  bool Create(const String &filename, const String &title, const String &stylesheet, bool xhtml = true) {
+    if ( File.Create(filename + ".html") ) {
+      CreateHeader(title, stylesheet, xhtml);
+      return true;
+    }
+    return false;
+  }
+
+  void CreateHeader(const String &title, const String &stylesheet, bool xhtml) {
+    String xtop = "<!DOCTYPE html PUBLIC\r\n"
+               "\"-//W3C//DTD XHTML 1.0 Transitional//EN\"\r\n"
+               "\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n";
+    String top =
+               "<html><head>"
+               "<link rel=\"stylesheet\" type =\"text/css\" href=\"" + stylesheet + "\" />"
+               "<title>" + title + "</title>"
+               "</head>";
+    if (xhtml)
+      top = top + xtop;
+    File.File.Write(top);
+  }
+
+  void Close() {
+    File.End("html");
+    File.Close();
+  }
+
+  void WriteChar(char ch) {
+    File.Write(ch);
+  }
+
+  void WriteString(const String &s) {
+    File.Write(s);
+  }
+
+  void Begin(const String &tag) {
+    File.Begin(tag);
+  }
+
+  void Begin(const String &tag, const String &attributes) {
+    File.Begin(tag, attributes);
+  }
+
+  void BeginWithClass(const String &tag, const String &className) {
+    File.Begin(tag, "class=\"" + className + "\"");
+  }
+
+  void End(const String &tag) {
+    File.End(tag);
+  }
+
+  void Insert(const String &tag, const String &attributes, const String &value) {
+    File.Insert(tag, attributes, value, false);
+  }
+
+  void VoidElement(const String &tag) {
+    File.VoidElement(tag);
+  }
+
+  void VoidElement(const String &tag, const String &attributes) {
+    File.VoidElement(tag, attributes);
+  }
+
+  void BeginBody() {
+    File.Begin("body");
+  }
+
+  void EndBody() {
+    File.End("body");
+  }
+
+  void InsertH1(const String &headerText) {
+    File.Insert("h1", "", headerText, false);
+  }
+
+  void InsertH2(const String &headerText) {
+    File.Insert("h2", "", headerText, false);
+  }
+
+  void BeginParagraph() {
+    File.Begin("p");
+  }
+
+  void EndParagraph() {
+    File.End("p");
+  }
+
+  void InsertParagraph(const String &p) {
+    File.Insert("p", "", p, false);
+  }
+
+  void BeginDiv(const String &className) {
+    File.Begin("div", "class=\"" + className + "\"");
+  }
+
+  void EndDiv() {
+    File.End("div");
+  }
+
+  void BeginSpan(const String &className) {
+    File.Begin("span", "class=\"" + className + "\"");
+  }
+
+  void EndSpan() {
+    File.End("span");
+  }
+
+  void BeginBold() {
+    File.Begin("b");
+  }
+
+  void EndBold() {
+    File.End("b");
+  }
+
+  void InsertItalic(const String &italicize) {
+    File.Insert("i", "", italicize, false);
+  }
+
+  void BeginDefinitionList() {
+    File.Begin("dl");
+  }
+
+  void InsertDefinitionTerm(const String &term) {
+    File.Insert("dt", "", term, false);
+  }
+
+  void InsertDefinition(const String &definition) {
+    File.Insert("dd", "", definition, false);
+  }
+
+  void InsertDefinitions(NameListClass definitions) {
+    foreach (NameListClass n in definitions)
+      InsertDefinition(n.Name());
+  }
+
+  void EndDefinitionList() {
+    File.End("dl");
+  }
+
+  void InsertLink(const String &text, const String &link) {
+    File.Insert("a", "href=\"" + link + "\"", text, false);
+  }
+
+  void BeginTable() {
+    File.Begin("table");
+  }
+
+  void BeginTable(const String &className, uint cellPadding, uint cellSpacing) {
+    File.Begin("table", "class=\"" + className + "\" cellpadding=\"" + cellPadding + "\" cellspacing=\"" + cellSpacing + "\"");
+  }
+
+  void BeginRow() {
+    File.Begin("tr");
+  }
+
+  void BeginRow(const String &className) {
+    BeginWithClass("tr", className);
+  }
+
+  void InsertHeading(const String &columnHeading) {
+    File.Insert("th", "", columnHeading, false);
+  }
+
+//  void BeginCell(int colSpan) {
+  void BeginCell() {
+    File.Begin("td");
+  }
+
+  void EndCell() {
+    File.End("td");
+  }
+/*
+  void InsertCell(const String cellText, const String className = "", int colSpan = 1) {
+    String s =  "colSpan=\"" + colSpan + "\"";
+    if (className.GetLength())
+      s +=  " class=\"" + className + "\"";
+    File.Insert("td", s, cellText);
+  }
+  */
+  void InsertCell(bool AmpOption, const String &cellText, const String &className = "", int colSpan = 1) {
+    String s =  "colSpan=\"" + colSpan + "\"";
+    if (className.GetLength())
+      s +=  " class=\"" + className + "\"";
+    File.Insert("td", s, cellText, AmpOption);
+  }
+  void EndRow() {
+    File.End("tr");
+  }
+
+  void EndTable() {
+    File.End("table");
+  }
+}

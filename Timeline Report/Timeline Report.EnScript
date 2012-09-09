@@ -1,0 +1,1041 @@
+/*
+This script gathers file information on all or selected files/folders and presents it in a timeline view.
+The user can select the timeframe to check and output Records (EnCase v6.5+), Bookmarks, HTML or tab-delimited text.
+See README for further explanation.
+
+Geoff Black
+geoff@geoffblack.com
+*/
+
+include "GB_HTMLLib"          //used to write out HTML file
+
+class MainClass;
+
+class TimelineClass : NodeClass {
+
+  enum SelDateType {
+    CREATED  = 10,
+    ACCESSED = 20,
+    WRITTEN  = 30,
+    MODIFIED = 40,
+    DELETED  = 50
+  }
+
+  property String           ID;                     //placeholder used for output selection
+  property String           FileName;               //placeholder used for output selection
+  property String           FileFullPath;           //full path of each file entry
+  property String           Description;            //placeholder used for output selection
+  property String           HashValue;              //placeholder used for output selection
+  property String           HashSet;                //placeholder used for output selection
+  property String           HashCategory;           //placeholder used for output selection
+  property String           Signature;              //placeholder used for output selection
+  property String           LogicalSize;            //logical size of file entry
+  property DateClass        SortDate;               //date field value to sort on
+  property SelDateType      SelectedDate;           //identifies which of the dates was selected in the filter
+  property DateClass        Created;                //created date of file entry
+  property DateClass        Accessed;               //last accessed date of file entry
+  property DateClass        Written;                //last written date of file entry
+  property DateClass        Modified;               //MFT entry modified date of file entry
+  property DateClass        Deleted;                //deleted date of file entry
+  property EntryClass       TimelineEntry;          //the actual entry in the case
+
+  TimelineClass(NodeClass parent=null, const String &logicalsize="",
+              const DateClass created=null, const DateClass accessed=null, const DateClass written=null, const DateClass modified=null,
+              const DateClass deleted=null, const DateClass sortdate=null, const SelDateType selecteddate=0, const EntryClass timelineentry=null):
+     NodeClass(parent)
+  {
+    LogicalSize   = logicalsize;
+    Created       = created;
+    Accessed      = accessed;
+    Written       = written;
+    Modified      = modified;
+    Deleted       = deleted;
+    SortDate      = sortdate;
+    SelectedDate  = selecteddate;
+    TimelineEntry = timelineentry;
+  }
+
+  static bool FilterDate(const DateClass &comparedate, const DateClass &mindate, const DateClass &maxdate) {
+    if ((mindate <= comparedate) && (comparedate <= maxdate))
+      return (true);
+    else
+      return (false);
+  }
+
+  DataPropertyClass ToDataProperty(){
+    DataPropertyClass dp();
+    dp.NewDataPropertyType("Sort Date", DataPropertyClass::DATE, SortDate);
+    dp.NewDataPropertyType("Selected Date", DataPropertyClass::STRING, SelDateType::SourceText(SelectedDate));
+    dp.NewDataPropertyType("Extension", DataPropertyClass::STRING, TimelineEntry.Extension());
+    dp.NewDataPropertyType("FileType", DataPropertyClass::STRING, TimelineEntry.FileType());
+    dp.NewDataPropertyType("Category", DataPropertyClass::STRING, TimelineEntry.Category());
+    dp.NewDataPropertyType("Signature", DataPropertyClass::STRING, TimelineEntry.Signature());
+    dp.NewDataPropertyType("Description", DataPropertyClass::STRING, TimelineEntry.Description());
+    dp.NewDataPropertyType("Is Deleted", DataPropertyClass::INT, TimelineEntry.IsDeleted());
+    dp.NewDataPropertyType("Accessed", DataPropertyClass::DATE, TimelineEntry.Accessed());
+    dp.NewDataPropertyType("Created", DataPropertyClass::DATE, TimelineEntry.Created());
+    dp.NewDataPropertyType("Written", DataPropertyClass::DATE, TimelineEntry.Written());
+    dp.NewDataPropertyType("Modified", DataPropertyClass::DATE, TimelineEntry.Modified());
+    dp.NewDataPropertyType("Deleted", DataPropertyClass::DATE, TimelineEntry.Deleted());
+    dp.NewDataPropertyType("Logical Size", DataPropertyClass::LONG, TimelineEntry.LogicalSize());
+    dp.NewDataPropertyType("FileID", DataPropertyClass::INT, TimelineEntry.FileID());
+    String hash = TimelineEntry.HashValue();
+    dp.NewDataPropertyType("Hash Value", DataPropertyClass::STRING, hash);
+    dp.NewDataPropertyType("Hash Set", DataPropertyClass::STRING, TimelineEntry.HashSet());
+    dp.NewDataPropertyType("Hash Category", DataPropertyClass::STRING, TimelineEntry.HashCategory());
+    dp.NewDataPropertyType("Full Path", DataPropertyClass::STRING, TimelineEntry.FullPath());
+    dp.NewDataPropertyType("Original Path", DataPropertyClass::STRING, TimelineEntry.OriginalPath());
+    return dp;
+  }
+}
+
+class OptionsDialogClass: DialogClass {
+
+  MainClass          m;
+  StaticTextClass    Description;
+  DateEditClass      StartDateEdit,
+                     StopDateEdit;
+  StringEditClass    InvestEdit,
+                     TitleEdit;
+  PathEditClass      OutPathEdit;
+  CheckBoxClass      IncludeCurrentChk,
+                     IncludeCriteriaChk,
+                     CreateHtmlChk,
+                     HtmlIEChk,
+                     HtmlFIREFOXChk,
+                     CreateTextChk,
+                     OnlySelectedChk,
+                     CreatedChk,
+                     WrittenChk,
+                     AccessedChk,
+                     ModifiedChk,
+                     DeletedChk,
+                     BookmarkItemsChk,
+                     RecordItemsChk;
+  RadioButtonClass   ResultSortOrderRadio;
+  GroupBoxClass      OutTypeGroup,
+                     TextGroup,
+                     HtmlGroup,
+                     OutOptGroup,
+                     ScriptOptGroup,
+                     TimeGroup,
+                     OutputFieldsGroup;
+  UIntEditClass      HTMLWrapEdit,
+                     TabbedWrapEdit;
+  ButtonClass        MoveUpButton,
+                     MoveDownButton;
+  ListEditClass      OutputFieldsList;
+
+  OptionsDialogClass(DialogClass parent, MainClass main):
+    DialogClass(parent, "Options"),
+    m = main,
+    //Basic input, top section
+    Description(this, "This script gathers file information on all or selected files and presents it in a timeline view.", 4, 4, 0, 0, 0),
+    StartDateEdit(this, "Start Date:", 4, 25, 140, DEFAULT, DateEditClass::AUTOHSCROLL, m.minDate, DateEditClass::SHOWTIME),
+    StopDateEdit(this, "Stop Date:", 165, 25, 140, DEFAULT, DateEditClass::AUTOHSCROLL, m.maxDate, DateEditClass::SHOWTIME),
+    InvestEdit(this, "Investigator Name:", 4, 55,  426, DEFAULT, StringEditClass::AUTOHSCROLL, m.Investigator, 256, 0),
+    TitleEdit(this, "Title of Report:", 4, 85, 426, DEFAULT, StringEditClass::AUTOHSCROLL, m.Title, 256, 0),
+    OutPathEdit(this, "Output Path:", 4, 115, 426, DEFAULT, PathEditClass::AUTOHSCROLL, m.Path, PathEditClass::FOLDEROPEN),
+    //Output types group
+    OutTypeGroup(this, "Output Types", 4, 145, 140, 168, 0),
+    RecordItemsChk(this, "Create Records", 10, 155, DEFAULT, DEFAULT, 0, m.RecordsOpt),
+    BookmarkItemsChk(this, "Create Bookmarks", 10, 167, DEFAULT, DEFAULT, 0, m.BkMarkOpt),
+    CreateTextChk(this, "Create TSV report", 10, 179, DEFAULT, DEFAULT, 0, m.ReportOptText),
+    TextGroup(this, "TSV Options", 18, 191, 110, 36, 0),
+    TabbedWrapEdit(this, "Entries per file", 22, 200, 66, DEFAULT, 0, m.TabbedWrap, 50, 65500, 0),
+    CreateHtmlChk(this, "Create HTML Report", 10, 230, DEFAULT, DEFAULT, 0, m.ReportOptHTML),
+    HtmlGroup(this, "HTML Options", 18, 243, 110, 63, 0),
+    HtmlIEChk(this, "Version for IE", 22, 252, DEFAULT, DEFAULT, 0, m.OutputIE),
+    HtmlFIREFOXChk(this, "Version for FireFox", 22, 265, DEFAULT, DEFAULT, 0, m.OutputFireFox),
+    HTMLWrapEdit(this, "Entries per file", 22, 278, 66, DEFAULT, 0, m.HTMLWrap, 50, 1000000, 0),
+    //Output options group
+    OutOptGroup(this, "Output Options", 150, 145, 150, 168, 0),
+    IncludeCurrentChk(this, "Include current time in heading?", 156, 155, DEFAULT, DEFAULT, 0, m.ExportTime),
+    IncludeCriteriaChk(this, "Include criteria in heading?", 156, 167, DEFAULT, DEFAULT, 0, m.ExportCriteria),
+    ResultSortOrderRadio(this, "Sort Order", 156, 183, 80, 45, 0, m.SortOrderOpt, "Ascending\tDescending", RadioButtonClass::GROUPBOX),
+    //Script options group
+    ScriptOptGroup(this, "Script Options", 307, 145, 138, 168, 0),
+    OnlySelectedChk(this, "Check only selected files?", 313, 155, DEFAULT, DEFAULT, 0, m.Select),
+    TimeGroup(this, "Time Options", 313, 171, 127, 73, 0),
+    CreatedChk(this, "Check Created time?", 317, 181, DEFAULT, DEFAULT, 0, m.CheckCreatedOpt),
+    WrittenChk(this, "Check Written time?", 317, 193, DEFAULT, DEFAULT, 0, m.CheckWrittenOpt),
+    AccessedChk(this, "Check Accessed time?", 317, 205, DEFAULT, DEFAULT, 0, m.CheckAccessedOpt),
+    ModifiedChk(this, "Check Entry Modified time?", 317, 217, DEFAULT, DEFAULT, 0, m.CheckModifiedOpt),
+    DeletedChk(this, "Check Deleted time?", 317, 229, DEFAULT, DEFAULT, 0, m.CheckDeletedOpt),
+    //Output fields group
+    OutputFieldsGroup(this, "Output Fields", 451, 4, 164, 309, 0),
+    MoveUpButton(this, "UP", 455, 150, 15, 15, 0),
+    MoveDownButton(this, "DN", 455, 170, 15, 15, 0),
+    OutputFieldsList(this, "", 477, 15, 130, 292, 0, m.FieldsList, ListEditClass::CANCHECK, ListEditClass::SHOWROWS)
+  {
+    //Enable Records output only if 6.5 or better
+    if (!((m.vMaj > 6) || ((m.vMaj == 6) && (m.vMin >= 5)))) {
+      m.RecordsOpt = false;
+      RecordItemsChk.Enable(false);
+    }
+    //Various setup control enablers
+    HtmlIEChk.Enable(m.ReportOptHTML);
+    HtmlFIREFOXChk.Enable(m.ReportOptHTML);
+    HTMLWrapEdit.Enable(m.ReportOptHTML);
+    TabbedWrapEdit.Enable(m.ReportOptText);
+    OutputFieldsGroup.Enable(m.ReportOptText);
+    OutputFieldsList.Enable(m.ReportOptText);
+    MoveUpButton.Enable(m.ReportOptText);
+    MoveDownButton.Enable(m.ReportOptText);
+    InvestEdit.Enable(m.ExportCriteria);
+    TitleEdit.Enable(m.ExportCriteria);
+    IncludeCurrentChk.Enable(m.ExportCriteria);
+    if (!(m.ReportOptHTML || m.ReportOptText)) {
+      OutPathEdit.Enable(false);
+      IncludeCurrentChk.Enable(false);
+      IncludeCriteriaChk.Enable(false);
+      InvestEdit.Enable(false);
+      TitleEdit.Enable(false);
+    }
+  }
+
+  static bool BadChar(const String &name) {
+    //Check for characters disallowed in standard Windows file systems
+    return (name.Contains("/") || name.Contains("*") || name.Contains("?") ||
+            name.Contains("<")  || name.Contains(">") || name.Contains("|"));
+  }
+
+  virtual void ChildEvent(const WindowClass::EventClass &event) {
+    DialogClass::ChildEvent(event);
+    if (IncludeCriteriaChk.Matches(event)) {
+      InvestEdit.Enable(IncludeCriteriaChk.GetValue());
+      TitleEdit.Enable(IncludeCriteriaChk.GetValue());
+    }
+    if (CreateHtmlChk.Matches(event)) {
+      HtmlIEChk.Enable(CreateHtmlChk.GetValue());
+      HtmlFIREFOXChk.Enable(CreateHtmlChk.GetValue());
+      HTMLWrapEdit.Enable(CreateHtmlChk.GetValue());
+    }
+    if (CreateTextChk.Matches(event)) {
+      TabbedWrapEdit.Enable(CreateTextChk.GetValue());
+      OutputFieldsGroup.Enable(CreateTextChk.GetValue());
+      OutputFieldsList.Enable(CreateTextChk.GetValue());
+      MoveUpButton.Enable(CreateTextChk.GetValue());
+      MoveDownButton.Enable(CreateTextChk.GetValue());
+    }
+    if (MoveUpButton.Matches(event)) {
+      int current_position = OutputFieldsList.GetValue().NodeToId();
+      if (current_position > 1) {
+        NameListClass n = m.FieldsList.Remove(OutputFieldsList.GetValue());
+        m.FieldsList.Insert(n, NodeClass::INSERTBEFORE, m.FieldsList.IdToNode(current_position-1));
+        OutputFieldsList.Input();
+        OutputFieldsList.Update();
+      }
+    }
+    if (MoveDownButton.Matches(event)) {
+      int current_position = OutputFieldsList.GetValue().NodeToId();
+      NameListClass n = m.FieldsList.Remove(OutputFieldsList.GetValue());
+      m.FieldsList.Insert(n, NodeClass::INSERTAFTER, m.FieldsList.IdToNode(current_position));
+      OutputFieldsList.Input();
+      OutputFieldsList.Update();
+    }
+    if (StartDateEdit.Matches(event))
+      AlterOutputPath();
+    if (StopDateEdit.Matches(event))
+      AlterOutputPath();
+    if (IncludeCriteriaChk.Matches(event))
+      IncludeCurrentChk.Enable(IncludeCriteriaChk.GetValue());
+    if (CreateHtmlChk.Matches(event) || CreateTextChk.Matches(event)) {
+      OutPathEdit.Enable(CreateHtmlChk.GetValue() || CreateTextChk.GetValue());
+      IncludeCurrentChk.Enable(CreateHtmlChk.GetValue() || CreateTextChk.GetValue());
+      IncludeCriteriaChk.Enable(CreateHtmlChk.GetValue() || CreateTextChk.GetValue());
+      InvestEdit.Enable(CreateHtmlChk.GetValue() || CreateTextChk.GetValue());
+      TitleEdit.Enable(CreateHtmlChk.GetValue() || CreateTextChk.GetValue());
+    }
+  }
+
+  void AlterOutputPath() {
+    //Update output path based on date range selected
+    DateClass min,
+              max;
+    StartDateEdit.GetValue(min);
+    StopDateEdit.GetValue(max);
+    String s = OutPathEdit.GetText();
+    String p = s.GetFilePath();
+    String f = "Timeline ";
+    f += min.GetString("yyyy-MM-dd**", "**HH.mm.ss", DateClass::GetTimeZoneBias()) + " - " +
+         max.GetString("yyyy-MM-dd**", "**HH.mm.ss", DateClass::GetTimeZoneBias());
+    f.Replace("** **", "_");
+    s = p + "\\" + f;
+    p = s;
+    m.rootfoldername = f;
+    uint i = 1;
+    while (LocalMachine.PathExists(p)) {
+      p = s + " - " + i;
+      ++i;
+    }
+    OutPathEdit.SetText(p);
+  }
+
+  virtual bool ActivateEvent() {
+    AlterOutputPath();
+    return true;
+  }
+
+  virtual bool CanClose() {
+    if (!(CreateTextChk.GetValue() || RecordItemsChk.GetValue() || BookmarkItemsChk.GetValue() || (CreateHtmlChk.GetValue() && (HtmlIEChk.GetValue() || HtmlFIREFOXChk.GetValue())))) {
+      SystemClass::Message(SystemClass::MBOK, "Error", "No output options selected!\nCheck Records, Bookmarks, text or HTML with IE/FireFox");
+      return false;
+    }
+    if (BadChar(OutPathEdit.GetText())) {
+      SystemClass::Message(SystemClass::ICONEXCLAMATION, "Error", "Illegal characters found in output folder name.\nName cannot contain \\ / * ? \" <> |");
+      return false;
+    }
+    if (!LocalMachine.PathExists(OutPathEdit.GetText()))
+      if (SystemClass::Message(SystemClass::MBOKCANCEL, "Create folder?", "Folder does not exist: " +
+          OutPathEdit.GetText() + "\n\nWould you like to create this folder?") == SystemClass::OK) {
+        if (!LocalMachine.CreateFolder(OutPathEdit.GetText(), ConnectionClass::CREATEFOLDERALL)) {
+          SystemClass::Message(SystemClass::MBOK, "Error", "Could not create folder at: " + OutPathEdit.GetText());
+          return false;
+        }
+      }
+      else
+        return false;
+    return DialogClass::CanClose();
+  }
+}
+
+class TimeHelpDialogClass : DialogClass {
+  GroupBoxClass               helpGroup;
+  StaticTextClass             helpGroupText;
+
+  TimeHelpDialogClass(DialogClass parent):
+    DialogClass(parent, "Help"),
+    helpGroup(this, "Help", 10, 10, 400, 220, 0),
+    helpGroupText(this,
+      "NOTE: Please review the README included with distribution for a full explanation\n\n" +
+      "Start Date:                 Beginning date and time for file filter\n\n" +
+      "Stop Date:                  Ending date and time for file filter\n\n" +
+      "Bookmark entries:      Bookmark entries in case\n\n" +
+      "Create TSV report:    Output in tab delimited text format\n\n" +
+      "Create HTML report:  Output in HTML format\n\n" +
+      "Create Records:         Create Records in case\n\n" +
+      "Sort Order:                 Ascending will place the most recent date at the bottom\n" +
+      "                                   Descending will place the most recent date at the top\n\n" +
+      "Selected Files:            Only check those files that are currently selected (blue checked)\n\n" +
+      "Contact:                     Please email any bugs or requests concerning this EnScript to\n" +
+      "                                   geoff@geoffblack.com",
+      15, 20, 280, 100, 0)
+  {
+  }
+}
+
+class MasterDialogClass : DialogClass {
+  //Only for calling tabbed dialog
+  OptionsDialogClass   OptionsDialog;
+  TimeHelpDialogClass  HelpDialog;
+
+  MasterDialogClass(MainClass m):
+    DialogClass(null, "EnCase Timeline Report (v" + m.Version + ")"),
+    OptionsDialog(this, m),
+    HelpDialog(this)
+  {
+  }
+}
+
+class TinyLogClass {
+  DateClass      now;
+  String         fullLog;
+
+  TinyLogClass()
+  {
+  }
+  void Log(const String &catName = "*UNDEF*", const String &title = "TinyLog!", const String &message = "") {
+    now.Now();
+    String s = now.GetString() + " " + catName + "\t[" +  title + "]\t" + message + "\n";
+    Console.Write(s);
+    fullLog += s;
+  }
+}
+
+class RecFolderListClass : NodeClass {
+
+  RecordFolderClass folder;
+  VolumeClass volume;
+
+  RecFolderListClass(RecFolderListClass parent=null, RecordFolderClass f=null, VolumeClass v=null) :
+    NodeClass(parent)
+  {
+    folder = f;
+    volume = v;
+  }
+}
+
+class MainClass {
+
+  HTMLClass                 Export;
+  NameListClass             Headings;
+  TinyLogClass              TLog;
+  DateClass                 maxDate,              //Ending date & time to search for
+                            minDate;              //Beginning date & time to search for
+  String                    Version,
+                            Path,                 //export path
+                            Investigator,         //Investigator name
+                            Title,                //report title
+                            scriptstart,          //start time of script
+                            rootfoldername;       //root folder name based on start and stop date
+  bool                      Odd,                  //tracks whether entry is odd or even for css
+                            Select,               //option to scan for only selected entries
+                            ExportTime,           //time of script execution
+                            ExportCriteria,       //add headings to output
+                            ReportOptHTML,        //create HTML output
+                            ReportOptText,        //create tab-separated values text file (csv extension)
+                            CheckCreatedOpt,      //check the Created date
+                            CheckWrittenOpt,      //check the Written date
+                            CheckAccessedOpt,     //check the Accessed date
+                            CheckModifiedOpt,     //check the entry Modified date
+                            CheckDeletedOpt,      //check the Deleted date
+                            OutputFireFox,        //FireFox HTML version
+                            OutputIE,             //Internet Explorer HTML version
+                            BkMarkOpt,            //create bookmarks
+                            RecordsOpt;           //create Records
+  int                       SortOrderOpt;         //Sort order - 0 for Ascending, 1 for Descending
+  typedef uint[256]         CountArray;
+  CountArray                bucket_size,
+                            first_in_bucket;
+  TimelineClass             ttemp;
+  typedef TimelineClass[]   TimelineArray;        //Array of TimelineClass for all found entries
+  TimelineArray             tarray,
+                            tempArray;
+  uint                      mycount,              //global counter of selected date fields
+                            entrycount,           //global counter of processed entries
+                            vMaj,
+                            vMin,
+                            vSub,
+                            totalcount,
+                            HTMLWrap,
+                            TabbedWrap;
+  RecFolderListClass        RecFolderList;
+  NameListClass             FieldsList,
+                            StorageFields;
+
+
+  MainClass() :
+    Version = "1.8.1",
+    vMaj = SystemClass::MajorVersion(),
+    vMin = SystemClass::MinorVersion(),
+    vSub = SystemClass::SubMajorVersion(),
+    //Default values for script used for the first run
+    //After the first run, GNBTimeline.INI file is used for storage
+    Title            = "EnCase Timeline Report",
+    //If the user would like these initialized on the *first* run, do so here
+    //Investigator     = "",
+    //mycount          = 0,
+    ExportTime       = true,
+    ExportCriteria   = true,
+    BkMarkOpt        = false,
+    ReportOptHTML    = false,
+    ReportOptText    = true,
+    Select           = false,
+    CheckCreatedOpt  = true,
+    CheckWrittenOpt  = true,
+    CheckAccessedOpt = true,
+    CheckModifiedOpt = true,
+    CheckDeletedOpt  = true,
+    OutputIE         = true,
+    OutputFireFox    = true,
+    RecordsOpt       = false,
+    //SortOrderOpt     = 0,
+    //totalcount       = 0,
+    HTMLWrap         = 10000,
+    TabbedWrap       = 65500,
+    FieldsList()
+  {
+    //Set date variables DEFAULT to current dtm and current dtm minus 1 day
+    maxDate.Now();
+    minDate.Set(maxDate.Year(), maxDate.Month(), maxDate.Day()-1, maxDate.Hour(), maxDate.Minute(), maxDate.Second());
+    RecFolderList = new RecFolderListClass();
+    FillFieldsList(FieldsList);
+  }
+
+  void WriteCSS(const String &path) {
+    LocalFileClass css();
+    String text =
+      "BODY { background-color: white; font-family: arial; margin-left: 0px; }\n"
+      "DIV.intro { margin-bottom: 25px; text-align: justify; }\n"
+      "H1 { text-align: center; font-weight: bold; color: #38749A; }\n"
+      "H2 { text-align: left; font-weight: bold; font-size: medium; }\n"
+      "TABLE { width: 100%; background-color: white; font-size: x-small; text-align: left; }\n"
+      "TABLE.header { width: 100%; font-size: small; text-align: center; font-weight: bold; }\n"
+      "TABLE.main { width: 100%; }\n"
+      "TR { height: 30px; }\n"
+      "TR.odd { background-color: #F0F0F0; }\n"
+      "TR.odd:hover { background-color: #606060; color: #F0F0F0; }\n"
+      "TR.even { background-color: #88C4EA; }\n"
+      "TR.even:hover { background-color: #606060; color: #F0F0F0; }\n"
+      "TD.a { font-size: 10px; text-align: right; }\n"
+      "TD.b { font-size: 10px; text-align: center; word-break: break-all; wrap-option: emergency; padding-right: 10px; padding-left: 10px; }\n"
+      "TD.header { font-size: 14px; text-align: left; }\n"
+      "TD.high { font-size: 10px; background-color: #e58100; text-align: center; white-space: nowrap; padding-right: 10px; padding-left: 10px; }\n"
+      "TD.folder { font-size: 10px; font-weight: bold; border-top-style: groove; border-bottom-width: 2px; padding-top: 15px; }\n"
+      "TD.empty { font-size: 10px; font-weight: bold; border-top-style: groove; border-bottom-width: 2px; padding-top: 15px; padding-bottom: 20px; }\n"
+      "TD.desc { font-size: 10px;  width: 100px; }\n"
+      "TD.name { font-size: 10px; height: 30px; width: 550px; }\n"
+      "TH { font-size: 12px; text-decoration: underline; text-align: center; background-color: white; font-weight: bold; }\n";
+
+    if (css.Open(path + "\\timeline.css", FileClass::WRITETEXTCRLF)) {
+      css.Write(text);
+      css.Close();
+    }
+    else
+      TLog.Log("Info", "TimelineReport", "Could not write " + path + "\\timeline.css -- The file may already exist");
+  }
+
+  void OutputTabDelimited(const TimelineArray TabArr, const String &casename, DateClass now, const int sa_sortorder, const uint &size) {
+    //Output all contents of array to Tab Delimited format
+    LocalFileClass     tabout();
+    String             fileOutName,
+                       buildheader,
+                       columnheader,
+                       buildfilelist;
+    uint               fileOutCount = 1;
+
+    tabout.SetCodePage(CodePageClass::UNICODE);
+    if (size < 65000) {
+      fileOutName = Path + "\\Timeline.csv";
+    }
+    else {
+      fileOutName = Path + "\\Timeline" + fileOutCount + ".csv";
+    }
+    if (tabout.Open(fileOutName, LocalFileClass::WRITETEXTCRLF)) {
+      buildheader = "EnCase Timeline Report\nCase: " + casename;
+      if (ExportTime)
+        buildheader += "     Time Executed: " + now.GetString(true);
+      if (Investigator)
+        buildheader += "     Investigator: " + Investigator;
+      buildheader += "\n";
+      if (ExportCriteria)
+        buildheader += "Report Criteria:   " + minDate.GetString() + "   -   " + maxDate.GetString() + "\n";
+      buildheader += "\n";
+      tabout.Write(buildheader);
+      forall (NameListClass field in FieldsList) {
+        if (field.IsSelected()) {
+          columnheader += field.Name() + "\t";
+        }
+      }
+      columnheader += "\n";
+      tabout.Write(columnheader);
+      if (sa_sortorder == 0) {
+        for (int i = 0; i < size; i++) {
+          CreateTabRecord(TabArr[i], tabout, i);
+          if (((1.0*i)/TabbedWrap) > (fileOutCount)) {
+            tabout.Close();
+            fileOutName = Path + "\\Timeline - " + ++fileOutCount + ".csv";
+            tabout.Open(fileOutName, LocalFileClass::WRITETEXTCRLF);
+            tabout.Write(columnheader);
+          }
+        }
+      }
+      else {
+        uint k = 0;
+        for (int i = (size-1); i >= 0; i--) {
+          CreateTabRecord(TabArr[i], tabout, i);
+          k++;
+          if (((1.0*k)/TabbedWrap) > (fileOutCount)) {
+            tabout.Close();
+            fileOutName = Path + "\\Timeline" + ++fileOutCount + ".csv";
+            tabout.Open(fileOutName, LocalFileClass::WRITETEXTCRLF);
+            tabout.Write(columnheader);
+          }
+        }
+      }
+      tabout.Close();
+    }
+  }
+
+  void CreateTabRecord(const TimelineClass currEntry, FileClass TabOut, const int i) {
+    String BuildFileList;
+    forall (NameListClass field in FieldsList) {
+      if (field.IsSelected()) {
+        if (field.Name() == "ID")
+          BuildFileList += i + "\t";
+        if (field.Name() == "FileName")
+          BuildFileList += currEntry.TimelineEntry.Name() + "\t";
+        if (field.Name() == "FileFullPath")
+          BuildFileList += currEntry.TimelineEntry.FullPath() + "\t";
+        if (field.Name() == "Description")
+          BuildFileList += currEntry.TimelineEntry.Description() + "\t";
+        if (field.Name() == "HashValue")
+          BuildFileList += currEntry.TimelineEntry.HashValue() + "\t";
+        if (field.Name() == "HashCategory")
+          BuildFileList += currEntry.TimelineEntry.HashCategory() + "\t";
+        if (field.Name() == "HashSet")
+          BuildFileList += currEntry.TimelineEntry.HashSet() + "\t";
+        if (field.Name() == "Signature")
+          BuildFileList += currEntry.TimelineEntry.Signature() + "\t";
+        if (field.Name() == "LogicalSize")
+          BuildFileList += currEntry.TimelineEntry.LogicalSize() + "\t";
+        if (field.Name() == "SortDate")
+          BuildFileList += currEntry.SortDate.GetString() + "\t";
+        if (field.Name() == "SelectedDate")
+          BuildFileList += TimelineClass::SelDateType::SourceText(currEntry.SelectedDate) + "\t";
+        if (field.Name() == "Created")
+          BuildFileList += currEntry.Created.GetString() + "\t";
+        if (field.Name() == "Accessed")
+          BuildFileList += currEntry.Accessed.GetString() + "\t";
+        if (field.Name() == "Written")
+          BuildFileList += currEntry.Written.GetString() + "\t";
+        if (field.Name() == "Modified")
+          BuildFileList += currEntry.Modified.GetString() + "\t";
+        if (field.Name() == "Deleted")
+          BuildFileList += currEntry.Deleted.GetString() + "\t";
+      }
+    }
+    BuildFileList += "\n";
+    TabOut.Write(BuildFileList);
+  }
+
+  void AddHtmlHeadings() {
+    //Headings for HTML output
+    new NameListClass(Headings, "ID");
+    new NameListClass(Headings, "Full Path");
+    new NameListClass(Headings, "Description");
+    new NameListClass(Headings, "Size");
+    new NameListClass(Headings, "Created");
+    new NameListClass(Headings, "Accessed");
+    new NameListClass(Headings, "Written");
+    new NameListClass(Headings, "Entry_Modified");
+    new NameListClass(Headings, "Deleted");
+  }
+
+  void OutputHTML(const String &casename, DateClass now, bool outputversion, const int sa_sortorder, const uint &size, const String &path) {
+    //Output all contents of array to HTML format
+    String filenameroot,
+           fileOutName;
+    uint   fileOutCount = 1;
+
+    if (!outputversion)
+      filenameroot = path + "\\TimelineReport-IE";
+    else
+      filenameroot = path + "\\TimelineReport-FF";
+    fileOutName = filenameroot;
+    if (size > 10000)
+      fileOutName += fileOutCount;
+    if (Export.Create(fileOutName, Title, "timeline.css")) {
+      Export.InsertH1(Title);
+      Export.BeginTable("header", 1, 1);
+      Export.BeginRow();
+      Export.InsertCell(false, "Case: " + casename, "header");
+      if (ExportTime)
+        Export.InsertCell(false, "Time Executed: " + now.GetString(true), "header");
+      if (Investigator)
+        Export.InsertCell(false, "Investigator: " + Investigator, "header");
+      Export.EndRow();
+      Export.EndTable();
+      if (ExportCriteria) {
+        Export.BeginTable("header", 1, 1);
+        Export.BeginRow();
+        Export.InsertCell(false, "Report Criteria:   " + minDate.GetString() + "   -   " + maxDate.GetString(), "header");
+        Export.EndRow();
+        Export.EndTable();
+      }
+      Export.BeginTable("main", 2, 2);
+      //Create header label row
+      Export.BeginRow();
+      foreach (NameListClass heading in Headings)
+        Export.InsertHeading(heading.Name());
+      Export.EndRow();
+      if (sa_sortorder == 0)
+        for (int i = 0; i < size; i++) {
+          CreateHTMLRecord(outputversion, i);
+          if (((1.0*i)/HTMLWrap) > (fileOutCount)) {
+            Export.EndTable();
+            Export.Close();
+            fileOutName = filenameroot + ++fileOutCount;
+            Export.Create(fileOutName, Title, "timeline.css");
+            Export.BeginTable("main", 2, 2);
+            //Create header label row
+            Export.BeginRow();
+            foreach (NameListClass heading in Headings)
+              Export.InsertHeading(heading.Name());
+            Export.EndRow();
+          }
+        }
+      else {
+        uint k = 0;
+        for (int i = (size-1); i >= 0; i--) {
+          CreateHTMLRecord(outputversion, i);
+          k++;
+          if (((1.0*k)/HTMLWrap) > (fileOutCount)) {
+            Export.EndTable();
+            Export.Close();
+            fileOutName = filenameroot + ++fileOutCount;
+            Export.Create(fileOutName, Title, "timeline.css");
+            Export.BeginTable("main", 2, 2);
+            //Create header label row
+            Export.BeginRow();
+            foreach (NameListClass heading in Headings)
+              Export.InsertHeading(heading.Name());
+            Export.EndRow();
+          }
+        }
+      }
+    }
+    Export.EndTable();
+    Export.Close();
+  }
+
+  void CreateHTMLRecord(const bool OutputVersion, const int i) {
+      //String mouseover = " onmouseover=\"style.background-color=#FF3333\"";
+
+      Export.BeginWithClass("tr", Odd ? "odd" : "even");
+      Export.InsertCell(true, i, "id");
+      String filepath = tarray[i].TimelineEntry.FullPath();
+      if (OutputVersion)
+        filepath.Replace("\\" , "\\&#8203;" , 0 , -1 , 0);
+      Export.InsertCell(true, filepath, "name");
+      Export.InsertCell(false, tarray[i].TimelineEntry.Description(), "desc");
+      Export.InsertCell(false, tarray[i].TimelineEntry.LogicalSize(), "a");
+      if (tarray[i].SelectedDate == TimelineClass::CREATED)
+        Export.InsertCell(false, tarray[i].Created.GetString(), "high");
+      else
+        Export.InsertCell(false, tarray[i].Created.GetString(), "b");
+      if (tarray[i].SelectedDate == TimelineClass::ACCESSED)
+        Export.InsertCell(false, tarray[i].Accessed.GetString(), "high");
+      else
+        Export.InsertCell(false, tarray[i].Accessed.GetString(), "b");
+      if (tarray[i].SelectedDate == TimelineClass::WRITTEN)
+        Export.InsertCell(false, tarray[i].Written.GetString(), "high");
+      else
+        Export.InsertCell(false, tarray[i].Written.GetString(), "b");
+      if (tarray[i].SelectedDate == TimelineClass::MODIFIED)
+        Export.InsertCell(false, tarray[i].Modified.GetString(), "high");
+      else
+        Export.InsertCell(false, tarray[i].Modified.GetString(), "b");
+      if (tarray[i].SelectedDate == TimelineClass::DELETED)
+        Export.InsertCell(false, tarray[i].Deleted.GetString(), "high");
+      else
+        Export.InsertCell(false, tarray[i].Deleted.GetString(), "b");
+      Export.EndRow();
+      Odd = !Odd;
+  }
+
+  void OutputBookmarks(const TimelineArray &bkarray, const uint &size, const int &sa_sortorder, CaseClass mycase, const String &bkfoldername) {
+    //Creates bookmarks for all files in range after sorting
+    //Create a bookmark folder in current case to place our bookmarks in and give it a comment
+    String bookPath     = bkfoldername,
+           initBookPath = bkfoldername;
+    uint i              = 1;
+
+    while (mycase.BookmarkRoot().Find(bookPath)) {
+      bookPath = initBookPath + " - " + i;
+      ++i;
+    }
+    TLog.Log("Info", "TimelineReport", "Adding bookmarks to: " + bookPath);
+    BookmarkFolderClass Folder(mycase.BookmarkRoot(), bookPath);
+    Folder.SetComment("EnCase Timeline Report" + "\nCase: " + mycase.Name() + "\nTime Executed: " + scriptstart + "\nInvestigator: " + Investigator +
+        "\nReport Criteria:   " + minDate.GetString() + "   -   " + maxDate.GetString() + "\n");
+    //Specify options for report display in bookmark folder we just created
+    Folder.SetFormat("[Index])\t[FullPath]" + "\n***Sorted On:\t[Comment]" + "\n" +
+      "\nFile Created\t[Created]" + "\nLast Written\t[Written]" + "\nLast Accessed\t[Accessed]" + "\n");
+    //Loop through stored array of files and bookmark each entry
+    if (sa_sortorder == 0)
+      for (int k = 0; k <= (size-1); k++)
+        CreateBookmark(bkarray[k], Folder);
+    else
+      for (int k = (size-1); k >= 0; k--)
+        CreateBookmark(bkarray[k], Folder);
+    TLog.Log("Info", "TimelineReport", "Bookmarks added");
+  }
+
+  void CreateBookmark(const TimelineClass &currEntry, BookmarkFolderClass Folder) {
+    //Creates bookmarks for current entry
+    if (currEntry.TimelineEntry.StartingExtent() == "") {
+      TLog.Log("Warn", "TimelineReport", "Skipping bookmark for invalid entry (no starting extent) '" + currEntry.TimelineEntry.FullPath() + "'");
+    }//if
+    else {
+      //Bookmark Comments need a string value format that can be sorted properly
+      String commentDate = currEntry.SortDate.GetString("yyyy-MM-dd**", "**HH.mm.ss", DateClass::GetTimeZoneBias());
+      commentDate.Replace("** **", "_");
+      Folder.AddBookmark(currEntry.TimelineEntry, 0, 0, commentDate + "  --  " + TimelineClass::SelDateType::SourceText(currEntry.SelectedDate),
+                         BookmarkClass::SHOWREPORT, BookmarkClass::NONE);
+    }
+  }
+
+  void OutputRecords(TimelineArray &recarray, CaseClass &mycase, const String &recfoldername) {
+    //Creates Records for all files in range after sorting
+    RecordFolderClass folder;
+    String recPath      = recfoldername,
+           initRecPath  = recfoldername;
+    uint i              = 1;
+
+    while (mycase.RecordRoot().Find(recPath)) {
+      recPath = initRecPath + " - " + i;
+      ++i;
+    }
+    TLog.Log("Info", "TimelineReport", "Adding records to: " + recPath);
+    if (SortOrderOpt == 0)
+      for (int k = 0; k <= (recarray.Count()-1); k++) {
+        CreateRecordFolder(folder, null, recfoldername, recarray[k].TimelineEntry.GetVolume());
+        if (recarray[k].TimelineEntry.Description().Contains("Mail item")) {
+          // Mail item Records - awaiting further evaluation
+          EmailClass rec(folder, recarray[k].TimelineEntry.Name(), 0, recarray[k].TimelineEntry);
+          DataPropertyClass dp = recarray[k].ToDataProperty();
+          rec.SetFields(dp);
+        }
+        else {
+          //Standard entry Record linking will occur here when that feature is added
+          EmailClass rec(folder, recarray[k].TimelineEntry.Name(), 0, recarray[k].TimelineEntry);
+          DataPropertyClass dp = recarray[k].ToDataProperty();
+          rec.SetFields(dp);
+        }
+      }
+    else
+      for (int k = (recarray.Count()-1); k >= 0; k--) {
+        CreateRecordFolder(folder, null, recfoldername, recarray[k].TimelineEntry.GetVolume());
+        if (recarray[k].TimelineEntry.Description().Contains("Mail item")) {
+          //Mail item Records - awaiting further evaluation
+          EmailClass rec(folder, recarray[k].TimelineEntry.Name(), 0, recarray[k].TimelineEntry);
+          DataPropertyClass dp = recarray[k].ToDataProperty();
+          rec.SetFields(dp);
+        }
+        else {
+          //Standard entry Record linking will occur here when that feature is added
+          EmailClass rec(folder, recarray[k].TimelineEntry.Name(), 0, recarray[k].TimelineEntry);
+          DataPropertyClass dp = recarray[k].ToDataProperty();
+          rec.SetFields(dp);
+        }
+      }
+    TLog.Log("Info", "TimelineReport", "Records added");
+  }
+
+  void CreateRecordFolder(RecordFolderClass &recordFolder, RecordFolderClass parentFolder, const String &recordFolderName, VolumeClass v) {
+    bool found = false;
+    forall (RecFolderListClass rf in RecFolderList)
+      if (rf.volume == v) {
+        recordFolder = rf.folder;
+        found = true;
+      }
+    if (!found) {
+      recordFolder = new RecordFolderClass(parentFolder, recordFolderName, v);
+      new RecFolderListClass(RecFolderList, recordFolder, v);
+    }
+  }
+
+  void ProcessEntry(EntryClass entry) {
+    //Filter all entries by selected date range and add to timeline array
+    //Add multiple if more than one date of the entry matches the filter range
+    //Do not check at all if option is not selected
+    DateClass writ = entry.Written();
+    DateClass acc  = entry.Accessed();
+    DateClass cre  = entry.Created();
+    DateClass mod  = entry.Modified();
+    DateClass del  = entry.Deleted();
+
+    if (CheckCreatedOpt)
+      if (TimelineClass::FilterDate(cre, minDate, maxDate)) {
+        TimelineClass ttemp(null, entry.LogicalSize(),
+                     cre, acc, writ, mod, del, cre, TimelineClass::CREATED, entry);
+        tarray.Add(ttemp);
+        tempArray.Add(ttemp);
+        mycount++;
+      }
+    if (CheckWrittenOpt)
+      if (TimelineClass::FilterDate(writ, minDate, maxDate)) {
+        TimelineClass ttemp(null, entry.LogicalSize(),
+                      cre, acc, writ, mod, del, writ, TimelineClass::WRITTEN, entry);
+        tarray.Add(ttemp);
+        tempArray.Add(ttemp);
+        mycount++;
+      }
+    if (CheckAccessedOpt)
+      if (TimelineClass::FilterDate(acc, minDate, maxDate)) {
+        TimelineClass ttemp(null, entry.LogicalSize(),
+                     cre, acc, writ, mod, del, acc, TimelineClass::ACCESSED, entry);
+        tarray.Add(ttemp);
+        tempArray.Add(ttemp);
+        mycount++;
+      }
+    if (CheckModifiedOpt)
+      if (TimelineClass::FilterDate(mod, minDate, maxDate)) {
+        TimelineClass ttemp(null, entry.LogicalSize(),
+                     cre, acc, writ, mod, del, mod, TimelineClass::MODIFIED, entry);
+        tarray.Add(ttemp);
+        tempArray.Add(ttemp);
+        mycount++;
+      }
+    if (CheckDeletedOpt)
+      if (TimelineClass::FilterDate(del, minDate, maxDate)) {
+        TimelineClass ttemp(null, entry.LogicalSize(),
+                     cre, acc, writ, mod, del, del, TimelineClass::DELETED, entry);
+        tarray.Add(ttemp);
+        tempArray.Add(ttemp);
+        mycount++;
+      }
+  }
+
+  void RadixSort (const int n) {
+    //Sorts timeline class array based on selected date field using a Radix Sort
+    //We use a radix of 256 and bitshift the values each time, thereby using
+    //4 passes to process the 32-bit uint Unix time values (2^32 == 256^4)
+    uint         i,
+                 j;
+    CountArray bucket_size();
+    CountArray first_in_bucket();
+
+    for (uint bitshift = 0; bitshift < 32; bitshift += 8)
+    {
+      //compute the size of each bucket and
+      //copy each record from tarray (main) to tempArray
+      for(i = 0; i < 256; i++)
+        bucket_size[i] = 0;
+      for(j = 0; j < n; j++)
+      {
+        i = (tarray[j].SortDate.GetUnix() >> bitshift) & 255;
+        bucket_size[i]++;
+        tempArray[j] = tarray[j];
+      }
+      //mark the beginning offset of each bucket
+      first_in_bucket[0] = 0;
+      for(i = 1; i < 256; i++)
+        first_in_bucket[i] = first_in_bucket[i-1] + bucket_size[i-1];
+      //copy each record from tempArray to its bucket in tarray
+      for(j = 0; j < n; j++)
+      {
+        i = (tempArray[j].SortDate.GetUnix() >> bitshift) & 255;
+        tarray[first_in_bucket[i]] = tempArray[j];
+        first_in_bucket[i]++;
+      }
+    }
+  }
+
+  void FillFieldsList(NameListClass fieldslist) {
+    SymbolClass symbol = typeof(TimelineClass);
+    foreach (SymbolClass s in symbol) {
+      if (s.IsProperty() && (s.Name() != "TimelineEntry")) {
+        NameListClass n = new NameListClass(fieldslist, s.Name());
+        n.SetSelected(true);
+      }
+    }
+  }
+
+  void SettingsStorage(uint storageOptions) {
+    StorageClass storeSettings("Timeline Report", storageOptions);
+    storeSettings.Value("Investigator",       Investigator);
+    storeSettings.Value("Title",              Title);
+    //Don't store the path - we attempt to autoselect a path later
+    //storeSettings.Value("Path",               Path);
+    storeSettings.Value("ExportTime",         ExportTime);
+    storeSettings.Value("ExportCriteria",     ExportCriteria);
+    storeSettings.Value("ReportOptHTML",      ReportOptHTML);
+    storeSettings.Value("HTMLWrap",           HTMLWrap);
+    storeSettings.Value("TabbedWrap",         TabbedWrap);
+    storeSettings.Value("minDate",            minDate);
+    storeSettings.Value("maxDate",            maxDate);
+    storeSettings.Value("ReportOptText",      ReportOptText);
+    storeSettings.Value("Select",             Select);
+    storeSettings.Value("SortOrder",          SortOrderOpt);
+    storeSettings.Value("CheckCreatedOpt",    CheckCreatedOpt);
+    storeSettings.Value("CheckWrittenOpt",    CheckWrittenOpt);
+    storeSettings.Value("CheckAccessedOpt",   CheckAccessedOpt);
+    storeSettings.Value("CheckModifiedOpt",   CheckModifiedOpt);
+    storeSettings.Value("CheckDeletedOpt",    CheckDeletedOpt);
+    storeSettings.Value("OutputIE",           OutputIE);
+    storeSettings.Value("OutputFireFox",      OutputFireFox);
+    storeSettings.Value("BkMarkOpt",          BkMarkOpt);
+    storeSettings.Value("RecordsOpt",         RecordsOpt);
+    storeSettings.Value("FieldsList",         FieldsList);
+  }
+
+  void Recurse(EntryClass entryroot) {
+    //Loop through all entries, filter based on selected entries option
+    Odd = true;
+
+    forall (EntryClass entry in entryroot)
+      if (!Select || entry.IsSelected()) {
+        ProcessEntry(entry);
+        SystemClass::StatusInc(1);
+        SystemClass::StatusMessage("Finding files  " + ++entrycount + " / " + totalcount);
+      }
+  }
+
+  void Main(CaseClass timecase) {
+    if (((vMaj == 6) && (vMin == 8) && (vSub < 1)) || (vMaj < 6)) {
+      SystemClass::Message(SystemClass::MBOK | SystemClass::ICONEXCLAMATION, "Error", "You must be running EnCase v6.8.1 or higher to use this script");
+      SystemClass::Exit();
+    }//else if version < 6.8.1
+    else if (!timecase) {
+      SystemClass::Message(SystemClass::MBOK | SystemClass::ICONEXCLAMATION, "Error", "You need to have a case open");
+      SystemClass::Exit();
+    }
+    else {
+      //Set Path variable to case Export folder value
+      //Path is auto-updated in the dialog when the range changes
+      String initPath = timecase.ExportFolder() + "\\";
+      Path = initPath;
+      SettingsStorage(0);
+      MasterDialogClass md(this);
+      if (md.Execute() == SystemClass::OK) {
+        SystemClass::ClearConsole();
+        SettingsStorage(StorageClass::WRITE);
+        Export           = new HTMLClass();
+        Headings         = new NameListClass();
+        TLog             = new TinyLogClass();
+        DateClass now;
+        now.Now();
+        scriptstart = now.GetString();
+        uint starttime = now.GetUnix();
+        TLog.Log("Info", "TimelineReport", "Script started");
+        forall (EntryClass entry in timecase.EntryRoot())
+          if (!Select || entry.IsSelected())
+            totalcount++;
+        TLog.Log("Info", "TimelineReport", "Looking for files matching " + minDate.GetString() + " - " + maxDate.GetString());
+        SystemClass::StatusRange("Finding files", totalcount);
+        //Create TimelineArray objects
+        tarray = new TimelineArray();
+        tempArray = new TimelineArray();
+        //Recurse all files in case
+        Recurse(timecase.EntryRoot());
+        TLog.Log("Info", "TimelineReport", "Done finding files");
+        TLog.Log("Info", "TimelineReport", mycount + " entries found in date range");
+        if (mycount > 65000)
+          if (SystemClass::Message(SystemClass::MBYESNO, "Large result list", "A large number of entries (" + mycount + ") were found matching your " +
+              "date range.\n\nDo you wish to continue processing?") == SystemClass::NO)
+            SystemClass::Exit();
+        SystemClass::StatusRange("Processing...", mycount);
+        TLog.Log("Info", "TimelineReport", "Sorting file list...");
+        //Don't bother outputting anything if no files found in range
+        if (mycount > 0) {
+          //Sort timeline array by the sortdate
+          RadixSort(mycount);
+          TLog.Log("Info", "TimelineReport", "Done sorting");
+          //Create record folder and records in current case
+          if (RecordsOpt)
+            OutputRecords(tarray, timecase, rootfoldername);
+          //Create bookmark folder and bookmarks in current case
+          if (BkMarkOpt)
+            OutputBookmarks(tarray, mycount, SortOrderOpt, timecase, rootfoldername);
+          //Create output directory
+          if (ReportOptText || ReportOptHTML) {
+            //LocalMachine.CreateFolder(Path);
+            //Output tab delimited text results
+            if (ReportOptText) {
+              OutputTabDelimited(tarray, timecase.Name(), now, SortOrderOpt, mycount);
+              TLog.Log("Info", "TimelineReport", "Text output complete");
+            }
+            //Output HTML results
+            if (ReportOptHTML) {
+              WriteCSS(Path);
+              AddHtmlHeadings();
+              if (OutputIE) {
+                OutputHTML(timecase.Name(), now, false, SortOrderOpt, mycount, Path);
+                TLog.Log("Info", "TimelineReport", "HTML output complete (IE version)");
+              }
+              if (OutputFireFox) {
+                OutputHTML(timecase.Name(), now, true, SortOrderOpt, mycount, Path);
+                TLog.Log("Info", "TimelineReport", "HTML output complete (FireFox version)");
+              }
+            }
+          }
+        }
+        now.Now();
+        TLog.Log("Info", "TimelineReport", "Script completed in " + (now.GetUnix() - starttime) + " seconds");
+      }
+    }
+  }
+}
