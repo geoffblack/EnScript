@@ -416,7 +416,7 @@ class MainClass {
 
 
   MainClass() :
-    Version = "1.8.1",
+    Version = "1.8.2",
     vMaj = SystemClass::MajorVersion(),
     vMin = SystemClass::MinorVersion(),
     vSub = SystemClass::SubMajorVersion(),
@@ -571,19 +571,19 @@ class MainClass {
         if (field.Name() == "LogicalSize")
           BuildFileList += currEntry.TimelineEntry.LogicalSize() + "\t";
         if (field.Name() == "SortDate")
-          BuildFileList += currEntry.SortDate.GetString() + "\t";
+          BuildFileList += currEntry.SortDate.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
         if (field.Name() == "SelectedDate")
           BuildFileList += TimelineClass::SelDateType::SourceText(currEntry.SelectedDate) + "\t";
         if (field.Name() == "Created")
-          BuildFileList += currEntry.Created.GetString() + "\t";
+          BuildFileList += currEntry.Created.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
         if (field.Name() == "Accessed")
-          BuildFileList += currEntry.Accessed.GetString() + "\t";
+          BuildFileList += currEntry.Accessed.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
         if (field.Name() == "Written")
-          BuildFileList += currEntry.Written.GetString() + "\t";
+          BuildFileList += currEntry.Written.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
         if (field.Name() == "Modified")
-          BuildFileList += currEntry.Modified.GetString() + "\t";
+          BuildFileList += currEntry.Modified.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
         if (field.Name() == "Deleted")
-          BuildFileList += currEntry.Deleted.GetString() + "\t";
+          BuildFileList += currEntry.Deleted.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias()) + "\t";
       }
     }
     BuildFileList += "\n";
