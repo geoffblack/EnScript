@@ -1,4 +1,4 @@
-EnCase EnScripts
+*EnCase EnScripts*
 
 
 C#.Net DLL COM Demo - Every once in a while I see people looking for help building dll's in the Microsoft .Net Framework for use with EnScript through COM. There are some tricks that are definitely non-obvious, so I put together this package to help.
