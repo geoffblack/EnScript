@@ -750,8 +750,7 @@ class MainClass {
     }//if
     else {
       //Bookmark Comments need a string value format that can be sorted properly
-      String commentDate = currEntry.SortDate.GetString("yyyy-MM-dd**", "**HH.mm.ss", DateClass::GetTimeZoneBias());
-      commentDate.Replace("** **", "_");
+      String commentDate = currEntry.SortDate.GetString("yyyy-MM-dd", "HH:mm:ss", DateClass::GetTimeZoneBias());
       Folder.AddBookmark(currEntry.TimelineEntry, 0, 0, commentDate + "  --  " + TimelineClass::SelDateType::SourceText(currEntry.SelectedDate),
                          BookmarkClass::SHOWREPORT, BookmarkClass::NONE);
     }
