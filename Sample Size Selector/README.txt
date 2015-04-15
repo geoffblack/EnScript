@@ -1,1 +1,0 @@
-This set of EnScripts aims to give users a method of determining what sample size they should be using directly within EnCase, and then to create a random sample subset of loaded files.
