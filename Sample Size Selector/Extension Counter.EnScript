@@ -1,8 +1,8 @@
 /*
 Simple extension count aggregator
 
-Script author: Geoff Black
-               geoff@geoffblack.com
+Copyright: Geoff Black
+           geoff@geoffblack.com
 */
 
 class ExtensionCounterClass: NameListClass {
@@ -16,24 +16,41 @@ class ExtensionCounterClass: NameListClass {
 }
 
 class MainClass {
+
+  void CheckExt(ExtensionCounterClass list, const String &ext) {
+    String x = ext;
+    if (x == "") {
+      x = "*";
+    }
+    ExtensionCounterClass ext = list.Find(x);
+    if (!ext) {
+      new ExtensionCounterClass(list, x, 1);
+    }
+    else {
+      ++ext.ExtCount;
+    }
+  }
+
   void Main(CaseClass c) {
     SystemClass::ClearConsole();
     ExtensionCounterClass ExtensionList();
+#ifdef VERSION_6
     forall (EntryClass e in c.EntryRoot()) {
       if (e.IsSelected()) {
-        String x = e.Extension();
-        if (x == "") {
-          x = "*";
-        }
-        ExtensionCounterClass ext = ExtensionList.Find(x);
-        if (!ext) {
-          new ExtensionCounterClass(ExtensionList, x, 1);
-        }
-        else {
-          ++ext.ExtCount;
-        }
+        CheckExt(ExtensionList, e.Extension());
       }
     }
+#endif
+#ifdef VERSION_7
+    ItemIteratorClass iter();
+    String selectedTags;
+    bool good = iter.Open(c, ItemIteratorClass::PROMPT | ItemIteratorClass::NOPROXY, ItemIteratorClass::TAGGED, selectedTags);
+    if (good) {
+      while (EntryClass e = iter.GetNextEntry()) {
+        CheckExt(ExtensionList, e.Extension());
+      }
+    }
+#endif
     forall (ExtensionCounterClass ext in ExtensionList) {
       Console.WriteLine(ext.Name() + "\t" + ext.ExtCount);
     }
